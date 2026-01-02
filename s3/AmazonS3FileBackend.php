@@ -97,6 +97,12 @@ class AmazonS3FileBackend extends FileBackendStore {
 	protected $privateWiki = null;
 
 	/**
+	 * @var bool If true, we will send ACL headers in S3 requests.
+	 * Some S3-compatible storage providers (e.g. Backblaze B2) do not support ACLs.
+	 */
+	protected $useAcl = true;
+
+	/**
 	 * Construct the backend. Doesn't take any extra config parameters.
 	 *
 	 * The configuration array may contain the following keys in addition
@@ -144,6 +150,9 @@ class AmazonS3FileBackend extends FileBackendStore {
 			];
 		}
 
+		// Fix for open_basedir restriction: prevent AWS SDK from trying to read ~/.aws/config
+		$params['use_aws_shared_config_files'] = false;
+
 		if ( isset( $config['endpoint'] ) ) {
 			$params['endpoint'] = $config['endpoint'];
 		}
@@ -166,6 +175,8 @@ class AmazonS3FileBackend extends FileBackendStore {
 			Default: if anonymous users aren't allowed to read articles, then we assume private mode.
 		*/
 		$this->privateWiki = $config['privateWiki'] ?? !AmazonS3CompatTools::isPublicWiki();
+
+		$this->useAcl = $config['awsUseAcl'] ?? true;
 
 		$this->logger->info(
 			'S3FileBackend: found backend with S3 buckets: {buckets}.{isPrivateWiki}',
@@ -331,8 +342,7 @@ class AmazonS3FileBackend extends FileBackendStore {
 
 		$ret = $this->runWithExceptionHandling( __FUNCTION__, function ()
 			use ( $params, $container, $bucket, $key, $contentType, $sha1Hash ) {
-			return $this->getClient()->putObject( array_filter( [
-				'ACL' => $this->isSecure( $container ) ? 'private' : 'public-read',
+			$args = [
 				'Body' => $params['content'],
 				'Bucket' => $bucket,
 				'CacheControl' => $params['headers']['cache-control'],
@@ -344,7 +354,11 @@ class AmazonS3FileBackend extends FileBackendStore {
 				'Key' => $key,
 				'Metadata' => [ 'sha1base36' => $sha1Hash ],
 				'ServerSideEncryption' => $this->encryption ? 'AES256' : null,
-			] ) );
+			];
+			if ( $this->useAcl ) {
+				$args['ACL'] = $this->isSecure( $container ) ? 'private' : 'public-read';
+			}
+			return $this->getClient()->putObject( array_filter( $args ) );
 		} );
 
 		$profiling->log();
@@ -442,8 +456,7 @@ class AmazonS3FileBackend extends FileBackendStore {
 			use ( $dstContainer, $dstBucket, $params, $srcBucket, $srcKey, $dstKey )
 		{
 			$client = $this->getClient();
-			return $client->copyObject( array_filter( [
-				'ACL' => $this->isSecure( $dstContainer ) ? 'private' : 'public-read',
+			$args = [
 				'Bucket' => $dstBucket,
 				'CacheControl' => $params['headers']['cache-control'],
 				'ContentDisposition' => $params['headers']['content-disposition'],
@@ -457,7 +470,12 @@ class AmazonS3FileBackend extends FileBackendStore {
 				'Key' => $dstKey,
 				'MetadataDirective' => 'COPY',
 				'ServerSideEncryption' => $this->encryption ? 'AES256' : null
-			] ) );
+			];
+			if ( $this->useAcl ) {
+				$args['ACL'] = $this->isSecure( $dstContainer ) ? 'private' : 'public-read';
+			}
+
+			return $client->copyObject( array_filter( $args ) );
 		} );
 
 		$profiling->log();
