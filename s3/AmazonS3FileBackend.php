@@ -119,7 +119,7 @@ class AmazonS3FileBackend extends FileBackendStore {
 	 * @throws AmazonS3MisconfiguredException if no containerPaths is set
 	 */
 	public function __construct( array $config ) {
-		global $wgAWSCredentials, $wgAWSRegion, $wgAWSUseHTTPS;
+		global $wgAWSCredentials, $wgAWSRegion, $wgAWSUseHTTPS, $wgAWSUseAcl;
 
 		parent::__construct( $config );
 
@@ -176,7 +176,7 @@ class AmazonS3FileBackend extends FileBackendStore {
 		*/
 		$this->privateWiki = $config['privateWiki'] ?? !AmazonS3CompatTools::isPublicWiki();
 
-		$this->useAcl = $config['awsUseAcl'] ?? true;
+		$this->useAcl = $config['awsUseAcl'] ?? $wgAWSUseAcl ?? true;
 
 		$this->logger->info(
 			'S3FileBackend: found backend with S3 buckets: {buckets}.{isPrivateWiki}',
